@@ -129,9 +129,12 @@ static char create_account(char *id, char *pwd, char *role) {
       strbuf_init(&cmd);
       start_tx();
       // create user <id> with password <pwd> 
-      strbuf_add(&cmd, "create user \"");
+      strbuf_add(&cmd, "create user ");
+      if (isdigit(*id)) {
+        strbuf_addc(&cmd, 'u');
+      }
       strbuf_add(&cmd, id);
-      strbuf_add(&cmd, "\" with password '");
+      strbuf_add(&cmd, " with password '");
       strbuf_add(&cmd, pwd);
       strbuf_addc(&cmd, '\'');
       res = PQexec(G_conn, (const char *)cmd.s);
@@ -143,13 +146,41 @@ static char create_account(char *id, char *pwd, char *role) {
       PQclear(res);
       strbuf_clear(&cmd);
       if (ok) {
-        // create schema authorization <id>
-        strbuf_add(&cmd, "create schema authorization \"");
+        // create schema <id> authorization <id>
+        strbuf_add(&cmd, "create schema ");
+        if (isdigit(*id)) {
+          strbuf_addc(&cmd, 's');
+        }
         strbuf_add(&cmd, id);
-        strbuf_addc(&cmd, '"');
+        strbuf_add(&cmd, " authorization ");
+        if (isdigit(*id)) {
+          strbuf_addc(&cmd, 'u');
+        }
+        strbuf_add(&cmd, id);
         res = PQexec(G_conn, (const char *)cmd.s);
         if (PQresultStatus((const PGresult *)res) != PGRES_COMMAND_OK) {
           fprintf(stderr, "create schema: %s\n", 
+                          PQresultErrorMessage((const PGresult *)res));
+          ok = 0;
+        }
+        PQclear(res);
+        strbuf_clear(&cmd);
+      }
+      if (ok) {
+        strbuf_add(&cmd, "alter role ");
+        if (isdigit(*id)) {
+          strbuf_addc(&cmd, 'u');
+        }
+        strbuf_add(&cmd, id);
+        strbuf_add(&cmd, " set search_path to ");
+        if (isdigit(*id)) {
+          strbuf_addc(&cmd, 's');
+        }
+        strbuf_add(&cmd, id);
+        strbuf_add(&cmd, ",public");
+        res = PQexec(G_conn, (const char *)cmd.s);
+        if (PQresultStatus((const PGresult *)res) != PGRES_COMMAND_OK) {
+          fprintf(stderr, "grant all on schema: %s\n", 
                           PQresultErrorMessage((const PGresult *)res));
           ok = 0;
         }
@@ -160,9 +191,11 @@ static char create_account(char *id, char *pwd, char *role) {
         // grant <role> to <id>
         strbuf_add(&cmd, "grant ");
         strbuf_add(&cmd, role);
-        strbuf_add(&cmd, " to \"");
+        strbuf_add(&cmd, " to ");
+        if (isdigit(*id)) {
+          strbuf_addc(&cmd, 'u');
+        }
         strbuf_add(&cmd, id);
-        strbuf_addc(&cmd, '"');
         res = PQexec(G_conn, (const char *)cmd.s);
         if (PQresultStatus((const PGresult *)res) != PGRES_COMMAND_OK) {
           fprintf(stderr, "grant role: %s\n", 
@@ -191,9 +224,12 @@ static char delete_account(char *id) {
     if (G_conn && id) {
       start_tx();
       strbuf_init(&cmd);
-      strbuf_add(&cmd, "drop schema if exists \"");
+      strbuf_add(&cmd, "drop schema if exists ");
+      if (isdigit(*id)) {
+        strbuf_addc(&cmd, 'S');
+      }
       strbuf_add(&cmd, id);
-      strbuf_add(&cmd, "\" cascade");
+      strbuf_add(&cmd, " cascade");
       res = PQexec(G_conn, (const char *)cmd.s);
       if (PQresultStatus((const PGresult *)res) != PGRES_COMMAND_OK) {
         fprintf(stderr, "drop schema: %s\n", 
@@ -203,9 +239,12 @@ static char delete_account(char *id) {
       PQclear(res);
       strbuf_clear(&cmd);
       strbuf_init(&cmd);
-      strbuf_add(&cmd, "drop owned by \"");
+      strbuf_add(&cmd, "drop owned by ");
+      if (isdigit(*id)) {
+        strbuf_addc(&cmd, 'U');
+      }
       strbuf_add(&cmd, id);
-      strbuf_add(&cmd, "\" restrict");
+      strbuf_add(&cmd, " restrict");
       // Ignore errors (if objects remain, the following "drop user"
       // will fail)
       new_savepoint();
@@ -215,9 +254,11 @@ static char delete_account(char *id) {
       PQclear(res);
       strbuf_clear(&cmd);
       if (ok) {
-        strbuf_add(&cmd, "drop user if exists \"");
+        strbuf_add(&cmd, "drop user if exists ");
+        if (isdigit(*id)) {
+          strbuf_addc(&cmd, 'U');
+        }
         strbuf_add(&cmd, id);
-        strbuf_addc(&cmd, '"');
         warnings = G_warnings;
         res = PQexec(G_conn, (const char *)cmd.s);
         if (PQresultStatus((const PGresult *)res) != PGRES_COMMAND_OK) {
@@ -318,8 +359,6 @@ static void usage(FILE* fp, char *prog) {
   fprintf(fp, "    -?        : Display this\n");
   fprintf(fp,
           "    -h <host> : Postgres server (optionally followed by ':port')\n");
-  fprintf(fp,
-     "    -d <db>   : Create schemas in database <db> (default postgres)\n");
   fprintf(fp, "    -U <name> : Postgres superuser\n");
   fprintf(fp, "    -i <n>    : Identifier is field <n> (default %hd)\n",
          DEF_ID);
@@ -552,12 +591,16 @@ int main(int argc, char **argv) {
                  // Create the account
                  if (op == CREATE) {
                    if (create_account(account, defpass, G_str[STR_ROLE])) {
-                     printf(" -- account %s created\n", account);
+                     printf(" -- account %s%s created\n", 
+                             (isdigit(*account) ? "u" : ""),
+                             account);
                      cnt++;
                    }
                  } else {
                    if (delete_account(account)) {
-                     printf(" -- account %s deleted\n", account);
+                     printf(" -- account %s%s deleted\n",
+                             (isdigit(*account) ? "u" : ""),
+                             account);
                      cnt++;
                    }
                  }
